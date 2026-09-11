@@ -50,7 +50,31 @@ function broadcast(data) {
     });
 }
 
-// 1. URL-Based Cast Endpoint (YouTube & Direct Video Links)
+// Low-latency FFmpeg profile tuned for Render hardware & VRChat
+const LOW_LATENCY_FFMPEG_FLAGS = [
+    '-vf', 'scale=1280:720,fps=30', // Scale to 720p 30fps to reduce CPU/Bandwidth strain
+    '-c:v', 'libx264',
+    '-preset', 'ultrafast',
+    '-tune', 'zerolatency',
+    '-b:v', '1500k',                // Cap video bitrate at 1.5 Mbps
+    '-maxrate', '1800k',
+    '-bufsize', '3000k',
+    '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-ar', '44100',
+    '-ac', '2',
+    '-g', '30',                     // 1-second keyframe interval
+    '-sc_threshold', '0',
+    '-fflags', 'nobuffer',
+    '-flags', 'low_delay',
+    '-f', 'hls',
+    '-hls_time', '1',               // 1-second segment lengths
+    '-hls_list_size', '3',          // Keep playlist small
+    '-hls_flags', 'delete_segments+omit_endlist'
+];
+
+// 1. URL Cast Handler (YouTube / Direct Links)
 app.post('/api/cast', async (req, res) => {
     let { url } = req.body;
     console.log(`[Cast Request Received]: ${url}`);
@@ -60,96 +84,59 @@ app.post('/api/cast', async (req, res) => {
 
     try {
         if (url.includes('youtube.com') || url.includes('youtu.be')) {
-            console.log('[yt-dlp] Resolving YouTube URL...');
+            console.log('[yt-dlp] Extracting link...');
             const output = await youtubeDl(url, {
                 getUrl: true,
-                format: 'best[ext=mp4]/best'
+                format: 'best[ext=mp4][height<=720]/best[height<=720]/best'
             });
             url = output.trim().split('\n')[0];
-            console.log('[yt-dlp] Resolved stream link successfully!');
         }
 
-        const ffmpegArgs = [
+        const args = [
             '-reconnect', '1',
             '-reconnect_streamed', '1',
             '-reconnect_delay_max', '5',
             '-i', url,
-            '-c:v', 'libx264',
-            '-preset', 'ultrafast',
-            '-tune', 'zerolatency',
-            '-c:a', 'aac',
-            '-ar', '44100',
-            '-ac', '2',
-            '-g', '30',
-            '-sc_threshold', '0',
-            '-fflags', 'nobuffer',
-            '-flags', 'low_delay',
-            '-f', 'hls',
-            '-hls_time', '1',
-            '-hls_list_size', '3',
-            '-hls_flags', 'delete_segments+omit_endlist',
+            ...LOW_LATENCY_FFMPEG_FLAGS,
             outputPath
         ];
 
-        ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
+        ffmpegProcess = spawn('ffmpeg', args);
 
-        ffmpegProcess.stderr.on('data', (d) => {
-            console.log(`FFmpeg: ${d}`);
-        });
-
-        // Give FFmpeg 4 seconds to write the initial HLS segments before notifying receivers
         setTimeout(() => {
             broadcast({ type: 'STREAM_START', streamUrl: '/stream/index.m3u8' });
-        }, 4000);
+        }, 3000);
 
         res.json({ success: true, message: "Casting initialized." });
 
     } catch (err) {
-        console.error("Failed to process link:", err);
+        console.error("Cast Error:", err);
         res.status(500).json({ success: false, message: "Failed to extract stream." });
     }
 });
 
-// 2. Direct WebScreen Sharing via WebSockets
+// 2. Direct Screen Share Handler
 wss.on('connection', (ws) => {
-    console.log('[WebSocket] Client connected');
-    ws.send(JSON.stringify({ type: 'STATUS', message: 'Connected to stream server' }));
-
     ws.on('message', (message) => {
         if (typeof message === 'string' || (message instanceof Buffer && message.toString().startsWith('{'))) {
             try {
                 const data = JSON.parse(message.toString());
 
                 if (data.type === 'START_SCREEN_CAST') {
-                    console.log('[Cast] Starting direct screen capture process...');
                     stopFFmpeg();
-
                     const outputPath = ensureStreamDir();
 
-                    ffmpegProcess = spawn('ffmpeg', [
+                    const args = [
                         '-i', 'pipe:0',
-                        '-c:v', 'libx264',
-                        '-preset', 'ultrafast',
-                        '-tune', 'zerolatency',
-                        '-c:a', 'aac',
-                        '-ar', '44100',
-                        '-ac', '2',
-                        '-g', '30',
-                        '-sc_threshold', '0',
-                        '-fflags', 'nobuffer',
-                        '-flags', 'low_delay',
-                        '-f', 'hls',
-                        '-hls_time', '1',
-                        '-hls_list_size', '3',
-                        '-hls_flags', 'delete_segments+omit_endlist',
+                        ...LOW_LATENCY_FFMPEG_FLAGS,
                         outputPath
-                    ]);
+                    ];
 
-                    ffmpegProcess.stderr.on('data', (d) => console.log(`FFmpeg: ${d}`));
+                    ffmpegProcess = spawn('ffmpeg', args);
 
                     setTimeout(() => {
                         broadcast({ type: 'STREAM_START', streamUrl: '/stream/index.m3u8' });
-                    }, 3000);
+                    }, 2000);
                 } else if (data.type === 'STOP_SCREEN_CAST') {
                     stopFFmpeg();
                 }
@@ -159,10 +146,6 @@ wss.on('connection', (ws) => {
                 ffmpegProcess.stdin.write(message);
             }
         }
-    });
-
-    ws.on('close', () => {
-        console.log('[WebSocket] Client disconnected');
     });
 });
 
