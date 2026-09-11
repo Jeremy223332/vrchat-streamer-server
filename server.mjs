@@ -10,12 +10,15 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(__dirname)); // Serves caster.html and tv.html from root directory
 
-// HTML Routes
-app.get('/caster', (req, res) => res.sendFile(path.join(__dirname, 'caster.html')));
-app.get('/tv', (req, res) => res.sendFile(path.join(__dirname, 'tv.html')));
+// Serve static files inside the public folder automatically
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Explicit routes for caster and tv pages
+app.get('/caster.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'caster.html')));
+app.get('/caster', (req, res) => res.sendFile(path.join(__dirname, 'public', 'caster.html')));
+app.get('/tv.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'tv.html')));
+app.get('/tv', (req, res) => res.sendFile(path.join(__dirname, 'public', 'tv.html')));
 
 let ffmpegProcess = null;
 
