@@ -46,59 +46,64 @@
         .controls {
             display: flex;
             gap: 10px;
-        }
-        input[type="text"] {
-            flex: 1;
-            padding: 12px;
-            border-radius: 5px;
-            border: 1px solid #444;
-            background: #2a2a2a;
-            color: #fff;
-            font-size: 1rem;
+            justify-content: center;
         }
         button {
-            padding: 12px 24px;
+            padding: 14px 28px;
             background-color: #00ffcc;
             color: #000000;
             font-weight: bold;
             border: none;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 1rem;
+            font-size: 1.1rem;
             transition: background 0.2s;
         }
         button:hover {
             background-color: #00cca3;
+        }
+        button:disabled {
+            background-color: #444;
+            color: #888;
+            cursor: not-allowed;
+        }
+        .stop-btn {
+            background-color: #ff4444;
+            color: white;
+        }
+        .stop-btn:hover {
+            background-color: #cc0000;
         }
     </style>
 </head>
 <body>
 
     <div class="container">
-        <h1>Classroom Caster Controller</h1>
+        <h1>Classroom Screen Caster</h1>
 
         <div id="tv-status" class="display-box">
             Connecting to server...
         </div>
 
         <div class="controls">
-            <input type="text" id="url-input" placeholder="Enter video or stream URL..." />
-            <button id="cast-btn" type="button">Cast to Screen</button>
+            <button id="start-screen-btn" type="button">Share & Cast Screen</button>
+            <button id="stop-screen-btn" type="button" class="stop-btn" style="display: none;">Stop Sharing</button>
         </div>
     </div>
 
     <script>
-        const castBtn = document.getElementById('cast-btn');
-        const urlInput = document.getElementById('url-input');
+        const startBtn = document.getElementById('start-screen-btn');
+        const stopBtn = document.getElementById('stop-screen-btn');
         const tvStatus = document.getElementById('tv-status');
 
-        // Dynamic WebSocket connection setup
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const ws = new WebSocket(`${protocol}//${window.location.host}`);
 
+        let mediaRecorder = null;
+        let localStream = null;
+
         ws.onopen = () => {
-            console.log('Connected to WebSocket server');
-            tvStatus.textContent = 'Waiting for stream input...';
+            tvStatus.textContent = 'Ready to share screen!';
         };
 
         ws.onmessage = (event) => {
@@ -106,47 +111,68 @@
                 const data = JSON.parse(event.data);
                 if (data.type === 'STATUS') {
                     tvStatus.textContent = data.message;
-                } else if (data.type === 'STREAM_START') {
-                    tvStatus.textContent = 'Streaming live to classroom screen!';
                 }
-            } catch (err) {
-                console.log('Message from server:', event.data);
-            }
+            } catch (err) {}
         };
 
-        ws.onerror = (error) => {
-            console.error('WebSocket Error:', error);
+        ws.onerror = () => {
             tvStatus.textContent = 'WebSocket Connection Error!';
         };
 
-        ws.onclose = () => {
-            console.log('WebSocket disconnected');
-            tvStatus.textContent = 'Disconnected from server. Retrying...';
-        };
+        startBtn.addEventListener('click', async () => {
+            try {
+                // Prompt user to pick Entire Screen, Window, or Chrome Tab
+                localStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { frameRate: 30 },
+                    audio: true
+                });
 
-        // Cast action
-        castBtn.addEventListener('click', () => {
-            const targetUrl = urlInput.value.trim();
-            if (!targetUrl) return;
+                tvStatus.textContent = 'Screen capture active. Transcoding to VRChat...';
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'inline-block';
 
-            tvStatus.textContent = "Casting to screen...";
+                // Stream video chunks over WebSockets to Render
+                mediaRecorder = new MediaRecorder(localStream, { mimeType: 'video/webm;codecs=vp8,opus' });
 
-            fetch('/api/cast', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: targetUrl })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    tvStatus.textContent = "Streaming live to classroom screen!";
-                }
-            })
-            .catch(err => {
-                console.error("Cast request failed:", err);
-                tvStatus.textContent = "Failed to start stream.";
-            });
+                ws.send(JSON.stringify({ type: 'START_SCREEN_CAST' }));
+
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+                        ws.send(e.data);
+                    }
+                };
+
+                mediaRecorder.start(500); // Send slice every 500ms
+
+                // Handle user clicking "Stop Sharing" on Chrome's floating bar
+                localStream.getVideoTracks()[0].onended = () => {
+                    stopCasting();
+                };
+
+            } catch (err) {
+                console.error("Screen share canceled or failed:", err);
+                tvStatus.textContent = 'Screen share canceled.';
+            }
         });
+
+        stopBtn.addEventListener('click', () => {
+            stopCasting();
+        });
+
+        function stopCasting() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+            }
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'STOP_SCREEN_CAST' }));
+            }
+            startBtn.style.display = 'inline-block';
+            stopBtn.style.display = 'none';
+            tvStatus.textContent = 'Screen sharing stopped.';
+        }
     </script>
 </body>
 </html>
