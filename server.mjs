@@ -11,10 +11,11 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Serve static files inside the public folder automatically
+// Serve static assets from public folder
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Explicit routes for caster and tv pages
+// Explicitly serve public files regardless of root file conflicts
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/caster.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'caster.html')));
 app.get('/caster', (req, res) => res.sendFile(path.join(__dirname, 'public', 'caster.html')));
 app.get('/tv.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'tv.html')));
