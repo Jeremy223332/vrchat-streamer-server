@@ -1,97 +1,59 @@
 import express from 'express';
-import { WebSocketServer } from 'ws';
-import http from 'http';
-import cors from 'cors';
-import path from 'path';
-import fs from 'fs';
 import { spawn } from 'child_process';
-import ffmpegPath from 'ffmpeg-static';
+import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const PORT = process.env.PORT || 3000;
 
-const PORT = process.env.PORT || 10000;
-const LIVE_DIR = path.join(__dirname, 'live');
-
-if (!fs.existsSync(LIVE_DIR)) {
-  fs.mkdirSync(LIVE_DIR, { recursive: true });
-}
-
-app.use(cors());
-app.use(express.static(__dirname));
-app.use('/live', express.static(LIVE_DIR));
-
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'caster.html'));
-});
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
 let ffmpegProcess = null;
 
-wss.on('connection', (ws) => {
-  console.log('Caster connected via WebSocket');
+// Cast endpoint triggered instantly by the button
+app.post('/api/cast', (req, res) => {
+    const { url } = req.body;
+    console.log(`[Cast Request Received]: ${url}`);
 
-  // Clear live directory on new connection
-  if (fs.existsSync(LIVE_DIR)) {
-    fs.readdirSync(LIVE_DIR).forEach(file => {
-      try { fs.unlinkSync(path.join(LIVE_DIR, file)); } catch (e) {}
-    });
-  }
-
-  // Spawn FFmpeg with flags for continuous HLS streaming
-  ffmpegProcess = spawn(ffmpegPath, [
-    '-loglevel', 'warning',
-    '-fflags', '+genpts+discardcorrupt',
-    '-f', 'webm',
-    '-i', 'pipe:0',
-    '-c:v', 'libx264',
-    '-preset', 'ultrafast',
-    '-tune', 'zerolatency',
-    '-pix_fmt', 'yuv420p',
-    '-g', '30',
-    '-keyint_min', '30',
-    '-sc_threshold', '0',
-    '-c:a', 'aac',
-    '-b:a', '128k',
-    '-f', 'hls',
-    '-hls_time', '1',
-    '-hls_list_size', '5',
-    '-hls_flags', 'delete_segments+omit_endlist+discont_start',
-    path.join(LIVE_DIR, 'stream.m3u8')
-  ]);
-
-  ffmpegProcess.stderr.on('data', (data) => {
-    console.log(`FFmpeg: ${data}`);
-  });
-
-  ws.on('message', (message) => {
-    if (ffmpegProcess && ffmpegProcess.stdin.writable) {
-      ffmpegProcess.stdin.write(message);
-    }
-  });
-
-  ws.on('close', () => {
-    console.log('Caster disconnected');
+    // Stop any previously running stream process
     if (ffmpegProcess) {
-      ffmpegProcess.stdin.end();
-      ffmpegProcess.kill('SIGINT');
-      ffmpegProcess = null;
+        ffmpegProcess.kill('SIGKILL');
     }
 
-    // Immediately remove stream files so playback stops instantly
-    if (fs.existsSync(LIVE_DIR)) {
-      fs.readdirSync(LIVE_DIR).forEach(file => {
-        try { fs.unlinkSync(path.join(LIVE_DIR, file)); } catch (e) {}
-      });
-      console.log('Stream files wiped on disconnect.');
-    }
-  });
+    // Zero-latency FFmpeg parameters to prevent buffering lag
+    const ffmpegArgs = [
+        '-i', url,
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-tune', 'zerolatency',
+        '-g', '30',
+        '-sc_threshold', '0',
+        '-fflags', 'nobuffer',
+        '-flags', 'low_delay',
+        '-f', 'hls',
+        '-hls_time', '1',
+        '-hls_list_size', '3',
+        '-hls_flags', 'delete_segments+omit_endlist',
+        'public/stream/index.m3u8'
+    ];
+
+    ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
+
+    ffmpegProcess.stderr.on('data', (data) => {
+        console.log(`FFmpeg: ${data}`);
+    });
+
+    // Respond instantly to client
+    res.json({ success: true, message: "Casting started immediately." });
 });
 
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// Ping route to keep Render instance warm
+app.get('/ping', (req, res) => res.send('OK'));
+
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
 });
