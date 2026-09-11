@@ -1,159 +1,85 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Devs.ai Caster · VRChat AVPro HLS</title>
-    <style>
-      :root { color-scheme: dark; --bg:#080d12; --panel:#101923; --muted:#8ea0b3; --text:#edf5ff; --line:#253547; --accent:#39d0a5; --danger:#ff6b6b; }
-      * { box-sizing: border-box; }
-      body { margin:0; min-height:100vh; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: radial-gradient(circle at 20% 0%, #16312f 0, transparent 32rem), var(--bg); color:var(--text); }
-      main { width:min(1120px, calc(100vw - 32px)); margin:0 auto; padding:40px 0; }
-      header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:28px; }
-      .brand { display:flex; align-items:center; gap:12px; font-weight:800; letter-spacing:-.04em; font-size:24px; }
-      .mark { width:38px; height:38px; border-radius:12px; background:linear-gradient(135deg, var(--accent), #84f2d5); box-shadow:0 16px 40px #39d0a544; }
-      a { color:var(--accent); }
-      .grid { display:grid; grid-template-columns: 1fr 380px; gap:20px; align-items:start; }
-      .card { background:color-mix(in oklab, var(--panel), transparent 4%); border:1px solid var(--line); border-radius:24px; padding:24px; box-shadow:0 24px 90px #0008; }
-      h1 { margin:0 0 12px; font-size:clamp(34px, 6vw, 68px); line-height:.94; letter-spacing:-.075em; }
-      p { color:var(--muted); line-height:1.65; }
-      label { display:block; color:#c8d6e5; font-size:13px; font-weight:700; margin:18px 0 8px; }
-      input { width:100%; border:1px solid var(--line); background:#071018; color:var(--text); border-radius:14px; padding:15px 16px; font-size:22px; letter-spacing:.35em; font-weight:800; text-align:center; outline:none; }
-      input:focus { border-color:var(--accent); box-shadow:0 0 0 4px #39d0a522; }
-      button { border:0; border-radius:14px; padding:14px 18px; color:#042018; background:var(--accent); font-weight:800; cursor:pointer; transition:transform .18s ease, filter .18s ease; width:100%; }
-      button:hover { transform:translateY(-1px); filter:brightness(1.06); }
-      button.secondary { color:var(--text); background:#172331; border:1px solid var(--line); }
-      button.danger { color:white; background:var(--danger); }
-      button:disabled { cursor:not-allowed; opacity:.55; transform:none; }
-      .stack { display:grid; gap:12px; }
-      video { width:100%; aspect-ratio:16/9; object-fit:contain; background:#020406; border:1px solid var(--line); border-radius:18px; }
-      .status { display:flex; align-items:center; gap:10px; padding:12px 14px; border-radius:14px; background:#071018; border:1px solid var(--line); color:#c8d6e5; font-size:14px; }
-      .dot { width:10px; height:10px; border-radius:50%; background:#7a8796; box-shadow:0 0 0 4px #7a879622; }
-      .dot.live { background:var(--accent); box-shadow:0 0 0 4px #39d0a522; }
-      code { display:block; overflow:auto; background:#071018; border:1px solid var(--line); border-radius:14px; padding:12px; color:#cfe9df; font-size:13px; }
-      ul { padding-left:20px; color:var(--muted); line-height:1.7; }
-      @media (max-width: 860px) { .grid { grid-template-columns:1fr; } header { align-items:flex-start; flex-direction:column; } }
-    </style>
-  </head>
-  <body>
-    <main>
-      <header>
-        <div class="brand"><div class="mark"></div><span>Devs.ai AVPro Caster</span></div>
-        <a href="/tv.html">Open Receiver / TV page</a>
-      </header>
+<head>
+  <meta charset="UTF-8" />
+  <title>VRChat Screen Caster</title>
+  <style>
+    body { font-family: sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
+    button { padding: 12px 24px; font-size: 16px; margin: 10px; cursor: pointer; background: #0088cc; color: #fff; border: none; border-radius: 4px; }
+    #status { margin-top: 15px; font-weight: bold; color: #ffcc00; }
+  </style>
+</head>
+<body>
+  <h2>VRChat Screen Broadcaster</h2>
+  <p>Select a <b>specific window or tab</b> (e.g. YouTube or a game) instead of your entire screen to prevent the feedback mirror.</p>
+  
+  <button id="startBtn">Start Screen Capture</button>
+  <button id="stopBtn" disabled>Stop Capture</button>
+  <div id="status">Status: Idle</div>
 
-      <section class="grid">
-        <div class="card">
-          <h1>Cast your desktop into a VRChat-ready HLS feed.</h1>
-          <p>Enter the four-digit pairing code shown on the TV page, choose the screen/tab/window to share, and this page will stream WebM chunks to the Node backend for live FFmpeg HLS transcoding.</p>
-          <video id="preview" muted autoplay playsinline></video>
-          <div style="height:16px"></div>
-          <div id="status" class="status"><span id="dot" class="dot"></span><span id="statusText">Idle. Enter a TV code to begin.</span></div>
-        </div>
+  <script>
+    let mediaRecorder = null;
+    let ws = null;
+    let stream = null;
 
-        <aside class="card stack">
-          <div>
-            <label for="pairCode">4-digit TV pairing code</label>
-            <input id="pairCode" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="1234" />
-          </div>
-          <button id="startBtn">Start screen stream</button>
-          <button id="stopBtn" class="danger" disabled>Stop stream</button>
-          <button id="copyBtn" class="secondary" disabled>Copy Live HLS URL</button>
-          <div>
-            <label>Live AVPro URL</label>
-            <code id="hlsUrl">Start streaming to generate /live/stream.m3u8</code>
-          </div>
-          <ul>
-            <li>Enable “Share tab audio” or system audio in the browser picker when available.</li>
-            <li>Use the copied <strong>.m3u8</strong> URL in an AVPro/VRChat video player.</li>
-            <li>Backend must run with FFmpeg installed: <code style="display:inline;padding:2px 6px">npm run stream</code></li>
-          </ul>
-        </aside>
-      </section>
-    </main>
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const status = document.getElementById('status');
 
-    <script>
-      const preview = document.getElementById('preview');
-      const pairCode = document.getElementById('pairCode');
-      const startBtn = document.getElementById('startBtn');
-      const stopBtn = document.getElementById('stopBtn');
-      const copyBtn = document.getElementById('copyBtn');
-      const statusText = document.getElementById('statusText');
-      const dot = document.getElementById('dot');
-      const hlsUrl = document.getElementById('hlsUrl');
+    startBtn.onclick = async () => {
+      try {
+        // Capture browser tab or specific application window
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { width: 1280, height: 720, frameRate: 30 },
+          audio: true
+        });
 
-      let mediaStream;
-      let recorder;
-      let socket;
-      let currentHlsUrl = '';
+        // Determine WebSockets protocol (ws:// or wss://)
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${protocol}//${window.location.host}`);
 
-      const backendOrigin = location.port === '3001' ? location.origin : `${location.protocol}//${location.hostname}:3001`;
-      const wsOrigin = backendOrigin.replace(/^http/, 'ws');
+        ws.onopen = () => {
+          status.innerText = 'Status: Connected! Encoding video stream...';
+          
+          // Stream raw WebM video chunks every 500ms over WebSockets
+          mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
+          
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+              ws.send(event.data);
+            }
+          };
 
-      pairCode.addEventListener('input', () => { pairCode.value = pairCode.value.replace(/\D/g, '').slice(0, 4); });
+          mediaRecorder.start(500);
+          startBtn.disabled = true;
+          stopBtn.disabled = false;
+        };
 
-      function setStatus(text, live = false) {
-        statusText.textContent = text;
-        dot.classList.toggle('live', live);
+        ws.onerror = (err) => {
+          status.innerText = 'WebSocket Error! Check server logs.';
+        };
+
+        stream.getVideoTracks()[0].onended = () => {
+          stopCapture();
+        };
+
+      } catch (err) {
+        status.innerText = 'Error starting capture: ' + err.message;
       }
+    };
 
-      async function start() {
-        const code = pairCode.value.trim();
-        if (!/^\d{4}$/.test(code)) { setStatus('Enter the 4-digit code from the TV page first.'); pairCode.focus(); return; }
+    stopBtn.onclick = () => {
+      stopCapture();
+    };
 
-        try {
-          mediaStream = await navigator.mediaDevices.getDisplayMedia({
-            video: { frameRate: 30, width: { ideal: 1920 }, height: { ideal: 1080 } },
-            audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-          });
-          preview.srcObject = mediaStream;
-
-          socket = new WebSocket(`${wsOrigin}/ingest?code=${code}`);
-          socket.binaryType = 'arraybuffer';
-
-          socket.addEventListener('open', () => {
-            currentHlsUrl = `${backendOrigin}/live/stream.m3u8`;
-            hlsUrl.textContent = currentHlsUrl;
-            copyBtn.disabled = false;
-            startBtn.disabled = true;
-            stopBtn.disabled = false;
-            setStatus('Connected. FFmpeg is building the live HLS playlist...', true);
-
-            recorder = new MediaRecorder(mediaStream, { mimeType: 'video/webm;codecs=vp8,opus' });
-            recorder.addEventListener('dataavailable', async (event) => {
-              if (event.data.size > 0 && socket?.readyState === WebSocket.OPEN) socket.send(await event.data.arrayBuffer());
-            });
-            recorder.addEventListener('stop', stop);
-            recorder.start(1000);
-          });
-
-          socket.addEventListener('message', (event) => console.log('backend:', event.data));
-          socket.addEventListener('close', () => setStatus('Caster socket closed. Restart to resume.'));
-          socket.addEventListener('error', () => setStatus('WebSocket error. Is the Node backend running on port 3001?'));
-          mediaStream.getVideoTracks()[0]?.addEventListener('ended', stop);
-        } catch (err) {
-          setStatus(err instanceof Error ? err.message : 'Screen capture was cancelled or failed.');
-        }
-      }
-
-      function stop() {
-        if (recorder && recorder.state !== 'inactive') recorder.stop();
-        if (socket && socket.readyState === WebSocket.OPEN) socket.close();
-        mediaStream?.getTracks().forEach((track) => track.stop());
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
-        setStatus('Stopped. HLS segments will expire from the live playlist.');
-      }
-
-      async function copyUrl() {
-        if (!currentHlsUrl) return;
-        await navigator.clipboard.writeText(currentHlsUrl);
-        setStatus('Copied live HLS URL for AVPro: ' + currentHlsUrl, true);
-      }
-
-      startBtn.addEventListener('click', start);
-      stopBtn.addEventListener('click', stop);
-      copyBtn.addEventListener('click', copyUrl);
-    </script>
-  </body>
+    function stopCapture() {
+      if (mediaRecorder) mediaRecorder.stop();
+      if (ws) ws.close();
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      status.innerText = 'Status: Stopped';
+    }
+  </script>
+</body>
 </html>
