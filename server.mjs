@@ -35,16 +35,17 @@ let ffmpegProcess = null;
 wss.on('connection', (ws) => {
   console.log('Caster connected via WebSocket');
 
-  // Clear previous stream segments on new connection
+  // Clear live directory on new connection
   if (fs.existsSync(LIVE_DIR)) {
     fs.readdirSync(LIVE_DIR).forEach(file => {
       try { fs.unlinkSync(path.join(LIVE_DIR, file)); } catch (e) {}
     });
   }
 
-  // Spawn FFmpeg in continuous sliding-window HLS mode
+  // Spawn FFmpeg with flags for continuous HLS streaming
   ffmpegProcess = spawn(ffmpegPath, [
     '-loglevel', 'warning',
+    '-fflags', '+genpts+discardcorrupt',
     '-f', 'webm',
     '-i', 'pipe:0',
     '-c:v', 'libx264',
@@ -60,7 +61,6 @@ wss.on('connection', (ws) => {
     '-hls_time', '1',
     '-hls_list_size', '5',
     '-hls_flags', 'delete_segments+omit_endlist+discont_start',
-    '-hls_segment_type', 'mpegts',
     path.join(LIVE_DIR, 'stream.m3u8')
   ]);
 
@@ -80,6 +80,14 @@ wss.on('connection', (ws) => {
       ffmpegProcess.stdin.end();
       ffmpegProcess.kill('SIGINT');
       ffmpegProcess = null;
+    }
+
+    // Immediately remove stream files so playback stops instantly
+    if (fs.existsSync(LIVE_DIR)) {
+      fs.readdirSync(LIVE_DIR).forEach(file => {
+        try { fs.unlinkSync(path.join(LIVE_DIR, file)); } catch (e) {}
+      });
+      console.log('Stream files wiped on disconnect.');
     }
   });
 });
