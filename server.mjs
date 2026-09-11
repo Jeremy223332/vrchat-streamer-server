@@ -18,7 +18,6 @@ const wss = new WebSocketServer({ server });
 const PORT = process.env.PORT || 10000;
 const LIVE_DIR = path.join(__dirname, 'live');
 
-// Ensure live directory exists
 if (!fs.existsSync(LIVE_DIR)) {
   fs.mkdirSync(LIVE_DIR, { recursive: true });
 }
@@ -36,16 +35,19 @@ let ffmpegProcess = null;
 wss.on('connection', (ws) => {
   console.log('Caster connected via WebSocket');
 
-  // Spawn FFmpeg using static binary
+  // Spawn FFmpeg to transcode incoming WebM chunks into HLS
   ffmpegProcess = spawn(ffmpegPath, [
+    '-f', 'webm',
     '-i', 'pipe:0',
     '-c:v', 'libx264',
     '-preset', 'ultrafast',
     '-tune', 'zerolatency',
+    '-pix_fmt', 'yuv420p',
     '-g', '30',
-    '-sc_threshold', '0',
+    '-c:a', 'aac',
+    '-b:a', '128k',
     '-f', 'hls',
-    '-hls_time', '1',
+    '-hls_time', '2',
     '-hls_list_size', '3',
     '-hls_flags', 'delete_segments',
     path.join(LIVE_DIR, 'stream.m3u8')
