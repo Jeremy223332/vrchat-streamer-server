@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Devs.ai TV Receiver · VRChat AVPro HLS</title>
+    <style>
+      :root { color-scheme: dark; --bg:#020507; --panel:#0d151d; --muted:#91a4b7; --text:#f1f7ff; --line:#263746; --accent:#39d0a5; }
+      * { box-sizing: border-box; }
+      html, body { width:100%; height:100%; margin:0; overflow:hidden; background:var(--bg); color:var(--text); font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      #waiting { position:fixed; inset:0; display:grid; place-items:center; padding:24px; background: radial-gradient(circle at 50% 0%, #12342e 0, transparent 34rem), var(--bg); }
+      .box { width:min(680px, 100%); border:1px solid var(--line); border-radius:32px; padding:42px; background:color-mix(in oklab, var(--panel), transparent 4%); box-shadow:0 32px 120px #000b; text-align:center; }
+      .eyebrow { color:var(--accent); text-transform:uppercase; letter-spacing:.18em; font-size:12px; font-weight:900; }
+      h1 { margin:16px 0 10px; font-size:clamp(32px, 6vw, 72px); line-height:.95; letter-spacing:-.07em; }
+      p { color:var(--muted); line-height:1.6; margin:0 auto 22px; max-width:56ch; }
+      .code { display:inline-flex; gap:10px; padding:18px 24px; border-radius:22px; background:#061018; border:1px solid var(--line); font-size:clamp(44px, 12vw, 104px); font-weight:950; letter-spacing:.16em; color:#fff; box-shadow: inset 0 0 0 1px #ffffff08; }
+      .pulse { display:inline-flex; align-items:center; gap:10px; margin-top:22px; color:#c8d8e8; }
+      .dot { width:12px; height:12px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 0 #39d0a566; animation:pulse 1.5s infinite; }
+      video { position:fixed; inset:0; width:100vw; height:100vh; object-fit:contain; background:#000; display:none; }
+      #overlay { position:fixed; left:20px; bottom:20px; display:none; padding:10px 12px; border-radius:999px; background:#000a; border:1px solid #ffffff26; color:#dff8ef; font-size:13px; }
+      #stream-status { position:fixed; top:18px; right:18px; z-index:10; display:none; align-items:center; gap:9px; padding:10px 13px; border-radius:999px; background:#061018d9; border:1px solid #39d0a54d; color:#dff8ef; font-size:13px; font-weight:800; letter-spacing:.02em; box-shadow:0 16px 60px #0008; backdrop-filter:blur(12px); }
+      #stream-status .mini-dot { width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 0 #39d0a566; animation:pulse 1.5s infinite; }
+      @keyframes pulse { 70% { box-shadow:0 0 0 16px #39d0a500; } 100% { box-shadow:0 0 0 0 #39d0a500; } }
+    </style>
+  </head>
+  <body>
+    <section id="waiting">
+      <div class="box">
+        <div class="eyebrow">VRChat / AVPro Receiver</div>
+        <h1>Waiting for screen request...</h1>
+        <p>Enter this four-digit pairing code on <strong>caster.html</strong>. Once the Caster connects, this page hides the waiting UI and loads the HLS feed full screen.</p>
+        <div id="code" class="code">----</div>
+        <div class="pulse"><span class="dot"></span><span id="state">Polling backend for a caster connection</span></div>
+      </div>
+    </section>
+
+    <video id="screen" autoplay controls playsinline></video>
+    <div id="stream-status"><span class="mini-dot"></span><span>listening for stream...</span></div>
+    <div id="overlay">Live HLS connected</div>
+
+    <script>
+      const waiting = document.getElementById('waiting');
+      const codeEl = document.getElementById('code');
+      const state = document.getElementById('state');
+      const video = document.getElementById('screen');
+      const streamStatus = document.getElementById('stream-status');
+      const overlay = document.getElementById('overlay');
+      const code = String(Math.floor(1000 + Math.random() * 9000));
+      codeEl.textContent = code;
+
+      const backendOrigin = location.port === '3001' ? location.origin : `${location.protocol}//${location.hostname}:3001`;
+      let connected = false;
+
+      async function poll() {
+        if (connected) return;
+        try {
+          const res = await fetch(`${backendOrigin}/api/pair/${code}`, { cache: 'no-store' });
+          const data = await res.json();
+          if (data.connected && !data.hlsUrl) {
+            streamStatus.style.display = 'inline-flex';
+            state.textContent = 'Caster connected — listening for stream...';
+            return;
+          }
+
+          if (data.connected && data.hlsUrl) {
+            connected = true;
+            waiting.style.display = 'none';
+            video.style.display = 'block';
+            streamStatus.style.display = 'none';
+            overlay.style.display = 'block';
+            video.src = data.hlsUrl;
+            video.play().catch(() => {
+              state.textContent = 'Stream found. Press play if autoplay is blocked.';
+            });
+          }
+        } catch (err) {
+          state.textContent = 'Cannot reach backend on port 3001. Start it with npm run stream.';
+        }
+      }
+
+      poll();
+      setInterval(poll, 1500);
+    </script>
+  </body>
+</html>
