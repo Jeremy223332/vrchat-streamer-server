@@ -11,7 +11,7 @@
 </head>
 <body>
   <h2>VRChat Screen Broadcaster</h2>
-  <p>Select a <b>specific window or tab</b> (e.g. YouTube or a game) instead of your entire screen to prevent the feedback mirror.</p>
+  <p>Select a <b>specific window or tab</b> to share.</p>
   
   <button id="startBtn">Start Screen Capture</button>
   <button id="stopBtn" disabled>Stop Capture</button>
@@ -28,21 +28,22 @@
 
     startBtn.onclick = async () => {
       try {
-        // Capture browser tab or specific application window
         stream = await navigator.mediaDevices.getDisplayMedia({
           video: { width: 1280, height: 720, frameRate: 30 },
           audio: true
         });
 
-        // Determine WebSockets protocol (ws:// or wss://)
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         ws = new WebSocket(`${protocol}//${window.location.host}`);
 
         ws.onopen = () => {
-          status.innerText = 'Status: Connected! Encoding video stream...';
+          status.innerText = 'Status: Connected! Streaming live...';
           
-          // Stream raw WebM video chunks every 500ms over WebSockets
-          mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
+          // Request keyframes every 1000ms (1 second) to keep FFmpeg synced continuously
+          mediaRecorder = new MediaRecorder(stream, { 
+            mimeType: 'video/webm;codecs=vp8,opus',
+            videoBitsPerSecond: 2500000 
+          });
           
           mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
@@ -50,13 +51,13 @@
             }
           };
 
-          mediaRecorder.start(500);
+          mediaRecorder.start(1000); // Send slice every 1 second
           startBtn.disabled = true;
           stopBtn.disabled = false;
         };
 
-        ws.onerror = (err) => {
-          status.innerText = 'WebSocket Error! Check server logs.';
+        ws.onerror = () => {
+          status.innerText = 'WebSocket Connection Error!';
         };
 
         stream.getVideoTracks()[0].onended = () => {
@@ -64,16 +65,14 @@
         };
 
       } catch (err) {
-        status.innerText = 'Error starting capture: ' + err.message;
+        status.innerText = 'Error: ' + err.message;
       }
     };
 
-    stopBtn.onclick = () => {
-      stopCapture();
-    };
+    stopBtn.onclick = stopCapture;
 
     function stopCapture() {
-      if (mediaRecorder) mediaRecorder.stop();
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
       if (ws) ws.close();
       if (stream) stream.getTracks().forEach(track => track.stop());
       startBtn.disabled = false;
