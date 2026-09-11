@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VRChat Screen Streamer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            max-width: 800px;
+            width: 100%;
+            background: #1e1e1e;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        h1 {
+            text-align: center;
+            color: #00ffcc;
+        }
+        .display-box {
+            width: 100%;
+            height: 350px;
+            background-color: #000000;
+            border: 2px solid #333;
+            border-radius: 8px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.4rem;
+            color: #888888;
+            margin-bottom: 20px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            border-radius: 5px;
+            border: 1px solid #444;
+            background: #2a2a2a;
+            color: #fff;
+            font-size: 1rem;
+        }
+        button {
+            padding: 12px 24px;
+            background-color: #00ffcc;
+            color: #000000;
+            font-weight: bold;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #00cca3;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Classroom Caster</h1>
+
+        <!-- TV & Live Display Placeholder -->
+        <div id="tv-status" class="display-box">
+            Waiting for stream...
+        </div>
+
+        <!-- Input & Caster Controls -->
+        <div class="controls">
+            <input type="text" id="url-input" placeholder="Enter video or website URL..." />
+            <button id="cast-btn" type="button">Cast to Screen</button>
+        </div>
+    </div>
+
+    <script>
+        const castBtn = document.getElementById('cast-btn');
+        const urlInput = document.getElementById('url-input');
+        const tvStatus = document.getElementById('tv-status');
+
+        castBtn.addEventListener('click', () => {
+            const targetUrl = urlInput.value.trim();
+            if (!targetUrl) return;
+
+            // Immediately change status without showing any loading screens/spinners
+            tvStatus.textContent = "Streaming live to classroom screen...";
+
+            // Send request to backend immediately
+            fetch('/api/cast', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: targetUrl })
+            }).catch(err => console.error("Cast request failed:", err));
+        });
+    </script>
+</body>
+</html>
