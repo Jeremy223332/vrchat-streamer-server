@@ -35,12 +35,14 @@ let ffmpegProcess = null;
 wss.on('connection', (ws) => {
   console.log('Caster connected via WebSocket');
 
-  // Clear previous segment files when a new stream starts
-  fs.readdirSync(LIVE_DIR).forEach(file => {
-    fs.unlinkSync(path.join(LIVE_DIR, file));
-  });
+  // Clear previous stream segments on new connection
+  if (fs.existsSync(LIVE_DIR)) {
+    fs.readdirSync(LIVE_DIR).forEach(file => {
+      try { fs.unlinkSync(path.join(LIVE_DIR, file)); } catch (e) {}
+    });
+  }
 
-  // Spawn FFmpeg with continuous live stream flags
+  // Spawn FFmpeg in continuous sliding-window HLS mode
   ffmpegProcess = spawn(ffmpegPath, [
     '-loglevel', 'warning',
     '-f', 'webm',
@@ -57,7 +59,8 @@ wss.on('connection', (ws) => {
     '-f', 'hls',
     '-hls_time', '1',
     '-hls_list_size', '5',
-    '-hls_flags', 'delete_segments+append_list+omit_endlist',
+    '-hls_flags', 'delete_segments+omit_endlist+discont_start',
+    '-hls_segment_type', 'mpegts',
     path.join(LIVE_DIR, 'stream.m3u8')
   ]);
 
