@@ -1,4 +1,6 @@
 import express from 'express';
+import { createServer } from 'http';
+import { WebSocketServer } from 'ws';
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -7,23 +9,43 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
+
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-
-// Serve static assets from public folder
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Explicitly serve public files regardless of root file conflicts
+// HTML Routes
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/caster.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'caster.html')));
 app.get('/caster', (req, res) => res.sendFile(path.join(__dirname, 'public', 'caster.html')));
 app.get('/tv.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'tv.html')));
 app.get('/tv', (req, res) => res.sendFile(path.join(__dirname, 'public', 'tv.html')));
 
+// WebSocket handling
+wss.on('connection', (ws) => {
+    console.log('[WebSocket] Client connected');
+    ws.send(JSON.stringify({ type: 'STATUS', message: 'Connected to stream server' }));
+
+    ws.on('close', () => {
+        console.log('[WebSocket] Client disconnected');
+    });
+});
+
+// Broadcast function to send updates to tv.html / caster.html
+function broadcast(data) {
+    wss.clients.forEach((client) => {
+        if (client.readyState === 1) { // 1 = OPEN
+            client.send(JSON.stringify(data));
+        }
+    });
+}
+
 let ffmpegProcess = null;
 
-// Cast endpoint triggered instantly by the button
+// Cast endpoint
 app.post('/api/cast', (req, res) => {
     const { url } = req.body;
     console.log(`[Cast Request Received]: ${url}`);
@@ -50,6 +72,9 @@ app.post('/api/cast', (req, res) => {
 
     ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
 
+    // Notify connected WebSockets that stream has started
+    broadcast({ type: 'STREAM_START', streamUrl: '/stream/index.m3u8' });
+
     ffmpegProcess.stderr.on('data', (data) => {
         console.log(`FFmpeg: ${data}`);
     });
@@ -59,6 +84,7 @@ app.post('/api/cast', (req, res) => {
 
 app.get('/ping', (req, res) => res.send('OK'));
 
-app.listen(PORT, () => {
+// IMPORTANT: Listen on 'server', not 'app' so WebSockets work
+server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
