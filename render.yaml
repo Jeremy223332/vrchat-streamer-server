@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: vrchat-hls-stream
+    env: node
+    buildCommand: apt-get update && apt-get install -y ffmpeg && npm install
+    startCommand: node server.mjs
