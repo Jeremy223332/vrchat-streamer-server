@@ -11,6 +11,11 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname)); // Serves caster.html and tv.html from root directory
+
+// HTML Routes
+app.get('/caster', (req, res) => res.sendFile(path.join(__dirname, 'caster.html')));
+app.get('/tv', (req, res) => res.sendFile(path.join(__dirname, 'tv.html')));
 
 let ffmpegProcess = null;
 
@@ -19,12 +24,10 @@ app.post('/api/cast', (req, res) => {
     const { url } = req.body;
     console.log(`[Cast Request Received]: ${url}`);
 
-    // Stop any previously running stream process
     if (ffmpegProcess) {
         ffmpegProcess.kill('SIGKILL');
     }
 
-    // Zero-latency FFmpeg parameters to prevent buffering lag
     const ffmpegArgs = [
         '-i', url,
         '-c:v', 'libx264',
@@ -47,11 +50,9 @@ app.post('/api/cast', (req, res) => {
         console.log(`FFmpeg: ${data}`);
     });
 
-    // Respond instantly to client
     res.json({ success: true, message: "Casting started immediately." });
 });
 
-// Ping route to keep Render instance warm
 app.get('/ping', (req, res) => res.send('OK'));
 
 app.listen(PORT, () => {
