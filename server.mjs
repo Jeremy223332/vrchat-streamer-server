@@ -5,6 +5,7 @@ import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import youtubeDl from 'yt-dlp-exec';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,39 +50,67 @@ function broadcast(data) {
     });
 }
 
-// 1. URL-based Stream Endpoint
-app.post('/api/cast', (req, res) => {
-    const { url } = req.body;
+// 1. URL-Based Cast Endpoint (YouTube & Direct Video Links)
+app.post('/api/cast', async (req, res) => {
+    let { url } = req.body;
     console.log(`[Cast Request Received]: ${url}`);
 
     stopFFmpeg();
     const outputPath = ensureStreamDir();
 
-    const ffmpegArgs = [
-        '-i', url,
-        '-c:v', 'libx264',
-        '-preset', 'ultrafast',
-        '-tune', 'zerolatency',
-        '-g', '30',
-        '-sc_threshold', '0',
-        '-fflags', 'nobuffer',
-        '-flags', 'low_delay',
-        '-f', 'hls',
-        '-hls_time', '1',
-        '-hls_list_size', '3',
-        '-hls_flags', 'delete_segments+omit_endlist',
-        outputPath
-    ];
+    try {
+        if (url.includes('youtube.com') || url.includes('youtu.be')) {
+            console.log('[yt-dlp] Resolving YouTube URL...');
+            const output = await youtubeDl(url, {
+                getUrl: true,
+                format: 'best[ext=mp4]/best'
+            });
+            url = output.trim().split('\n')[0];
+            console.log('[yt-dlp] Resolved stream link successfully!');
+        }
 
-    ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
-    broadcast({ type: 'STREAM_START', streamUrl: '/stream/index.m3u8' });
+        const ffmpegArgs = [
+            '-reconnect', '1',
+            '-reconnect_streamed', '1',
+            '-reconnect_delay_max', '5',
+            '-i', url,
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',
+            '-tune', 'zerolatency',
+            '-c:a', 'aac',
+            '-ar', '44100',
+            '-ac', '2',
+            '-g', '30',
+            '-sc_threshold', '0',
+            '-fflags', 'nobuffer',
+            '-flags', 'low_delay',
+            '-f', 'hls',
+            '-hls_time', '1',
+            '-hls_list_size', '3',
+            '-hls_flags', 'delete_segments+omit_endlist',
+            outputPath
+        ];
 
-    ffmpegProcess.stderr.on('data', (d) => console.log(`FFmpeg: ${d}`));
+        ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
 
-    res.json({ success: true, message: "URL Casting started." });
+        ffmpegProcess.stderr.on('data', (d) => {
+            console.log(`FFmpeg: ${d}`);
+        });
+
+        // Give FFmpeg 4 seconds to write the initial HLS segments before notifying receivers
+        setTimeout(() => {
+            broadcast({ type: 'STREAM_START', streamUrl: '/stream/index.m3u8' });
+        }, 4000);
+
+        res.json({ success: true, message: "Casting initialized." });
+
+    } catch (err) {
+        console.error("Failed to process link:", err);
+        res.status(500).json({ success: false, message: "Failed to extract stream." });
+    }
 });
 
-// 2. Direct Screen Capture via WebSockets
+// 2. Direct WebScreen Sharing via WebSockets
 wss.on('connection', (ws) => {
     console.log('[WebSocket] Client connected');
     ws.send(JSON.stringify({ type: 'STATUS', message: 'Connected to stream server' }));
@@ -102,6 +131,9 @@ wss.on('connection', (ws) => {
                         '-c:v', 'libx264',
                         '-preset', 'ultrafast',
                         '-tune', 'zerolatency',
+                        '-c:a', 'aac',
+                        '-ar', '44100',
+                        '-ac', '2',
                         '-g', '30',
                         '-sc_threshold', '0',
                         '-fflags', 'nobuffer',
@@ -114,7 +146,10 @@ wss.on('connection', (ws) => {
                     ]);
 
                     ffmpegProcess.stderr.on('data', (d) => console.log(`FFmpeg: ${d}`));
-                    broadcast({ type: 'STREAM_START', streamUrl: '/stream/index.m3u8' });
+
+                    setTimeout(() => {
+                        broadcast({ type: 'STREAM_START', streamUrl: '/stream/index.m3u8' });
+                    }, 3000);
                 } else if (data.type === 'STOP_SCREEN_CAST') {
                     stopFFmpeg();
                 }
