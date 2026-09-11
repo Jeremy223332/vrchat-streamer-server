@@ -1,104 +1,89 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>VRChat TV Receiver</title>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body, html { width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; }
-    
-    #video { width: 100%; height: 100%; object-fit: contain; display: block; }
-    
-    #status-badge {
-      position: absolute;
-      top: 15px;
-      right: 15px;
-      padding: 8px 16px;
-      border-radius: 20px;
-      font-size: 14px;
-      font-weight: bold;
-      color: #fff;
-      background: rgba(255, 165, 0, 0.8); /* Yellow/Orange for listening */
-      backdrop-filter: blur(5px);
-      z-index: 10;
-      transition: background 0.3s ease;
-    }
-
-    #status-badge.connected {
-      background: rgba(0, 200, 83, 0.8); /* Green for connected */
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VRChat TV Receiver</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        .status-badge {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 165, 0, 0.85);
+            color: #000;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            z-index: 10;
+        }
+    </style>
 </head>
 <body>
 
-  <div id="status-badge">listening for stream..</div>
-  <video id="video" autoplay controls muted playsinline></video>
+    <div id="status" class="status-badge">listening for stream..</div>
+    <video id="video-player" controls autoplay muted playsinline></video>
 
-  <script>
-    const video = document.getElementById('video');
-    const badge = document.getElementById('status-badge');
-    const streamUrl = '/live/stream.m3u8';
-    let hls = null;
-    let isConnected = false;
+    <script>
+        const video = document.getElementById('video-player');
+        const statusBadge = document.getElementById('status');
 
-    function checkStream() {
-      fetch(streamUrl, { method: 'HEAD' })
-        .then(response => {
-          if (response.ok) {
-            if (!isConnected) {
-              setConnectedStatus();
-              loadStream();
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${protocol}//${window.location.host}`);
+
+        let hls = null;
+
+        function loadStream() {
+            const streamUrl = '/stream/index.m3u8?' + new Date().getTime(); // Prevent caching
+
+            if (Hls.isSupported()) {
+                if (hls) hls.destroy();
+                hls = new Hls({ maxBufferLength: 2, liveSyncDuration: 1 });
+                hls.loadSource(streamUrl);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    video.play();
+                    statusBadge.style.background = 'rgba(0, 255, 204, 0.85)';
+                    statusBadge.textContent = 'STREAM LIVE';
+                });
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        setTimeout(loadStream, 2000); // Retry if segment isn't ready yet
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = streamUrl;
+                video.play();
+                statusBadge.textContent = 'STREAM LIVE';
             }
-          } else {
-            setListeningStatus();
-          }
-        })
-        .catch(() => {
-          setListeningStatus();
-        });
-    }
+        }
 
-    function setConnectedStatus() {
-      isConnected = true;
-      badge.innerText = 'Connected to stream!';
-      badge.classList.add('connected');
-    }
-
-    function setListeningStatus() {
-      if (isConnected) {
-        if (hls) hls.destroy();
-        video.src = '';
-      }
-      isConnected = false;
-      badge.innerText = 'listening for stream..';
-      badge.classList.remove('connected');
-    }
-
-    function loadStream() {
-      if (Hls.isSupported()) {
-        if (hls) hls.destroy();
-        hls = new Hls({ manifestLoadingMaxRetry: 10, manifestLoadingTimeOut: 5000 });
-        hls.loadSource(streamUrl);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.play().catch(() => {});
-        });
-        hls.on(Hls.Events.ERROR, (event, data) => {
-          if (data.fatal) {
-            setListeningStatus();
-          }
-        });
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = streamUrl;
-        video.play().catch(() => {});
-      }
-    }
-
-    // Continuously check for active HLS stream every 2 seconds
-    setInterval(checkStream, 2000);
-    checkStream();
-  </script>
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'STREAM_START') {
+                    statusBadge.textContent = 'Loading video stream...';
+                    setTimeout(loadStream, 2000); // Give FFmpeg 2 sec to write initial files
+                }
+            } catch (e) {}
+        };
+    </script>
 </body>
 </html>
