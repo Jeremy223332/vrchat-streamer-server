@@ -1,27 +1,76 @@
 import express from 'express';
+import { WebSocketServer } from 'ws';
+import http from 'http';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
+import { spawn } from 'child_process';
+import ffmpegPath from 'ffmpeg-static';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+
 const PORT = process.env.PORT || 10000;
+const LIVE_DIR = path.join(__dirname, 'live');
 
-// Enable CORS for VRChat / Unity players
+// Ensure live directory exists
+if (!fs.existsSync(LIVE_DIR)) {
+  fs.mkdirSync(LIVE_DIR, { recursive: true });
+}
+
 app.use(cors());
-
-// Serve HTML pages (caster.html, tv.html, etc.) directly from the project root
 app.use(express.static(__dirname));
-
-// Serve the live stream HLS directory
-app.use('/live', express.static(path.join(__dirname, 'live')));
+app.use('/live', express.static(LIVE_DIR));
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'caster.html'));
 });
 
-app.listen(PORT, () => {
+let ffmpegProcess = null;
+
+wss.on('connection', (ws) => {
+  console.log('Caster connected via WebSocket');
+
+  // Spawn FFmpeg using static binary
+  ffmpegProcess = spawn(ffmpegPath, [
+    '-i', 'pipe:0',
+    '-c:v', 'libx264',
+    '-preset', 'ultrafast',
+    '-tune', 'zerolatency',
+    '-g', '30',
+    '-sc_threshold', '0',
+    '-f', 'hls',
+    '-hls_time', '1',
+    '-hls_list_size', '3',
+    '-hls_flags', 'delete_segments',
+    path.join(LIVE_DIR, 'stream.m3u8')
+  ]);
+
+  ffmpegProcess.stderr.on('data', (data) => {
+    console.log(`FFmpeg: ${data}`);
+  });
+
+  ws.on('message', (message) => {
+    if (ffmpegProcess && ffmpegProcess.stdin.writable) {
+      ffmpegProcess.stdin.write(message);
+    }
+  });
+
+  ws.on('close', () => {
+    console.log('Caster disconnected');
+    if (ffmpegProcess) {
+      ffmpegProcess.stdin.end();
+      ffmpegProcess.kill('SIGINT');
+      ffmpegProcess = null;
+    }
+  });
+});
+
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
